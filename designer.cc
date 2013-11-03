@@ -52,10 +52,15 @@ static double compute_error(float *filter, float *transfer_fn) {
 	return sqrtf(mono_error / 256) * M_SQRT2 + sqrtf(crossfeed_error / 117) * M_SQRT1_2;
 }
 
+static double window_fn(int i, int N) {
+	return 0.42 - 0.5 * cos((2*M_PI*i)/(N-1)) + 0.08 * cos((4*M_PI*i)/(N-1));
+}
+
 int main(int argc, char *argv[]) {
 	ios_base::sync_with_stdio(false);
 	float filter[74] = {0};
 	float slope[74];
+	float weight[74];
 	float transfer_fn[256];
 	float mu = 0.2;
 	float err;
@@ -66,6 +71,15 @@ int main(int argc, char *argv[]) {
 	}
 	filter[24] = 1;
 	filter[49] = -1;
+	for(unsigned int i=0;i<74;++i) {
+		if(i < 24) {
+			weight[i] = window_fn(i, 49);
+		} else if (i < 50) {
+			weight[i] = 1;
+		} else {
+			weight[i] = weight[74 - i];
+		}
+	}
 	fft_context = vDSP_create_fftsetup(9, 2);
 	err = compute_error(filter, transfer_fn);
 	while(true) {
@@ -79,7 +93,7 @@ int main(int argc, char *argv[]) {
 			new_filter[i] = filter[i];
 		}
 		for(unsigned int i=0; i<74; ++i) {
-			new_filter[i] -= slope[i] * mu;
+			new_filter[i] -= slope[i] * weight[i] * mu;
 		}
 		float new_err = compute_error(new_filter, transfer_fn);
 		if(new_err < err) {
