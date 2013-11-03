@@ -8,20 +8,20 @@ using namespace std;
 static FFTSetup fft_context;
 
 static float transfer_function(float x) {
-	return 1 - expf(0.0000593514*x - 1.30903);
+	return (1 - expf(0.0000593514*x - 1.30903)) * 0.6;
 }
 
 static void compute_crossfeed_response(float *result, float *filter) {
 	vDSP_vclr(result, 1, 512);
 	for(unsigned int i=0;i<74;++i) {
-		result[i+219] = -filter[i];
+		result[i+219] = -filter[i] / 2;
 	}
-	result[219+24] += 1;
+	result[219+24] += 0.5;
 }
 
 static void compute_mono_response(float *result, float *filter) {
 	for(unsigned int i=0;i<74;++i) {
-		result[219+24+i] += filter[i];
+		result[219+24+i] += filter[i] / 2;
 	}
 }
 
