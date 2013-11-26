@@ -8,7 +8,7 @@ using namespace std;
 static FFTSetup fft_context;
 
 static float transfer_function(float x) {
-	return (1 - expf(0.0000593514*x - 1.30903)) * 0.6;
+	return sqrtf((1 - expf(0.0000593514*x - 1.30903)) * 0.7);
 }
 
 static void compute_crossfeed_response(float *result, float *filter) {
@@ -49,7 +49,7 @@ static double compute_error(float *filter, float *transfer_fn) {
 		float err = 1 - 0.5 * response_interleaved[2*i];
 		mono_error += err*err;
 	}
-	return sqrtf(mono_error / 256) * M_SQRT2 + sqrtf(crossfeed_error / 117) * M_SQRT1_2;
+	return (mono_error / 256) * M_SQRT2 + (crossfeed_error / 117) * M_SQRT1_2;
 }
 
 static double window_fn(int i, int N) {
