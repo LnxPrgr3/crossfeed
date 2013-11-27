@@ -13,12 +13,17 @@ struct control_msg {
 
 static struct message_queue mq;
 static crossfeed_t crossfeed;
+static float scale = 1;
 
 static void event_handler(struct PlayerEvent *evt) {
 	struct control_msg *msg;
 	switch(evt->type) {
 	case PLAYER_RENDER:
 		crossfeed_filter_inplace_noninterleaved(&crossfeed, evt->left, evt->right, evt->size);
+		for(unsigned int i=0;i<evt->size;++i) {
+			evt->left[i] *= scale;
+			evt->right[i] *= scale;
+		}
 		break;
 	case PLAYER_DONE:
 		msg = message_queue_message_alloc_blocking(&mq);
@@ -33,7 +38,7 @@ int main(int argc, char *argv[]) {
 	message_queue_init(&mq, sizeof(struct control_msg), 2);
 	crossfeed_init(&crossfeed);
 	if(argc < 2) {
-		fprintf(stderr, "Usage: %s /foo/bar\n", argc == 1 ? argv[0] : "crossfeed-player");
+		fprintf(stderr, "Usage: %s [-g dBFS] /foo/bar\n", argc == 1 ? argv[0] : "crossfeed-player");
 		goto done;
 	}
 	struct Player player;
@@ -42,6 +47,14 @@ int main(int argc, char *argv[]) {
 		goto done;
 	}
 	for(int i=1;i<argc;++i) {
+		if(strcmp(argv[i], "-g") == 0) {
+			if(++i > argc)
+				break;
+			float scale_db = atof(argv[i]);
+			scale = pow(10, scale_db/20);
+			fprintf(stderr, "Set gain to %f (%fdBFS)\n", scale, scale_db);
+			continue;
+		}
 		fprintf(stderr, "Playing `%s'...\n", argv[i]);
 		if(CAPlayFile(&player, argv[i])) {
 			fprintf(stderr, "Error playing `%s'\n", argv[i]);
