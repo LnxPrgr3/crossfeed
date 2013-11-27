@@ -81,7 +81,8 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Failed to get AudioFilePlayer stream format\n");
 		goto close_graph;
 	}
-	outputFormat.mSampleRate = fileFormat.mSampleRate;
+	outputFormat.mFormatFlags = (outputFormat.mFormatFlags & ~(kAudioFormatFlagIsSignedInteger)) | kLinearPCMFormatFlagIsFloat;
+	outputFormat.mSampleRate = 96000.;
 	outputFormat.mChannelsPerFrame = fileFormat.mChannelsPerFrame;
 	if(AudioUnitSetProperty(fileAU, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &outputFormat, sizeof(outputFormat))) {
 		fprintf(stderr, "Failed to set AudioFilePlayer stream format\n");
@@ -106,7 +107,7 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Failed to determine file length\n");
 		goto uninit_graph;
 	}
-	if(AudioUnitAddRenderNotify(fileAU, render_callback, (void *)(packets * fileFormat.mFramesPerPacket))) {
+	if(AudioUnitAddRenderNotify(fileAU, render_callback, (void *)(uintptr_t)(packets * fileFormat.mFramesPerPacket * 96000/(fileFormat.mSampleRate)))) {
 		fprintf(stderr, "Failed to add render callback\n");
 		goto uninit_graph;
 	}
