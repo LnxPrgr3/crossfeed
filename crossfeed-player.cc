@@ -18,16 +18,16 @@ static float scale = 1;
 static void event_handler(struct PlayerEvent *evt) {
 	struct control_msg *msg;
 	switch(evt->type) {
-	case PLAYER_RENDER:
+	case PlayerEvent::PLAYER_RENDER:
 		crossfeed_filter_inplace_noninterleaved(&crossfeed, evt->left, evt->right, evt->size);
 		for(unsigned int i=0;i<evt->size;++i) {
 			evt->left[i] *= scale;
 			evt->right[i] *= scale;
 		}
 		break;
-	case PLAYER_DONE:
-		msg = message_queue_message_alloc_blocking(&mq);
-		msg->type = MSG_FILEDONE;
+	case PlayerEvent::PLAYER_DONE:
+		msg = (struct control_msg *)message_queue_message_alloc_blocking(&mq);
+		msg->type = control_msg::MSG_FILEDONE;
 		message_queue_write(&mq, msg);
 		break;
 	}
