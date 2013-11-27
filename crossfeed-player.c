@@ -41,12 +41,15 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Error initializing audio output\n");
 		goto done;
 	}
-	if(CAPlayFile(&player, argv[1])) {
-		fprintf(stderr, "Error playing file\n");
-		goto close_player;
+	for(int i=1;i<argc;++i) {
+		fprintf(stderr, "Playing `%s'...\n", argv[i]);
+		if(CAPlayFile(&player, argv[i])) {
+			fprintf(stderr, "Error playing `%s'\n", argv[i]);
+			continue;
+		}
+		message_queue_message_free(&mq, message_queue_read(&mq));
+		CAStopPlayback(&player);
 	}
-	message_queue_message_free(&mq, message_queue_read(&mq));
-	CAStopPlayback(&player);
 	res = EXIT_SUCCESS;
 close_player:
 	CADestroyPlayer(&player);
