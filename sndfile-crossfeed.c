@@ -16,6 +16,9 @@ int main(int argc, char *argv[]) {
 	crossfeed_init(&filter);
 	while((read = sf_read_float(in_file, buf, 2048)) > 0) {
 		crossfeed_filter(&filter, buf, obuf, read/2);
+		for(i=0;i<read;++i) {
+			obuf[i] = obuf[i] > 1 ? 1 : (obuf[i] < -1 ? -1 : obuf[i]);
+		}
 		sf_write_float(out_file, obuf, read);
 	}
 	sf_close(out_file);
