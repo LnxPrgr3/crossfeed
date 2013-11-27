@@ -2,9 +2,28 @@
 #include <stdio.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <AudioToolbox/AudioToolbox.h>
+#include "message_queue.h"
+
+struct control_msg {
+	int id;
+	enum {MSG_FILEDONE} type;
+};
+
+static struct message_queue mq;
+
+static OSStatus render_callback(void *data, AudioUnitRenderActionFlags *ioActionFlags, const AudioTimeStamp *inTimeStamp, UInt32 inBusNumber, UInt32 inNumberFrames, AudioBufferList *ioData) {
+	uintptr_t end = (uintptr_t)data;
+	if(inTimeStamp->mSampleTime >= end) {
+		struct control_msg *msg = message_queue_message_alloc_blocking(&mq);
+		msg->type = MSG_FILEDONE;
+		message_queue_write(&mq, msg);
+	}
+	return 0;
+}
 
 int main(int argc, char *argv[]) {
 	int res = EXIT_FAILURE;
+	message_queue_init(&mq, sizeof(struct control_msg), 2);
 	if(argc < 2) {
 		fprintf(stderr, "Usage: %s /foo/bar\n", argc == 1 ? argv[0] : "crossfeed-player");
 		goto done;
@@ -87,6 +106,10 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Failed to determine file length\n");
 		goto uninit_graph;
 	}
+	if(AudioUnitAddRenderNotify(fileAU, render_callback, (void *)(packets * fileFormat.mFramesPerPacket))) {
+		fprintf(stderr, "Failed to add render callback\n");
+		goto uninit_graph;
+	}
 	Float64 fileDuration = (packets * fileFormat.mFramesPerPacket) / fileFormat.mSampleRate;
 	ScheduledAudioFileRegion rgn = {
 		.mTimeStamp = {
@@ -120,7 +143,7 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Failed to start playback\n");
 		goto uninit_graph;
 	}
-	usleep((int)fileDuration * 1000000.);
+	message_queue_message_free(&mq, message_queue_read(&mq));
 	res = EXIT_SUCCESS;
 	AUGraphStop(graph);
 uninit_graph:
@@ -132,5 +155,6 @@ close_file:
 release_url:
 	CFRelease(url);
 done:
+	message_queue_destroy(&mq);
 	return res;
 }
