@@ -3,6 +3,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <AudioToolbox/AudioToolbox.h>
 #include "message_queue.h"
+#include "crossfeed.h"
 
 struct control_msg {
 	int id;
@@ -10,9 +11,12 @@ struct control_msg {
 };
 
 static struct message_queue mq;
+static crossfeed_t crossfeed;
 
 static OSStatus render_callback(void *data, AudioUnitRenderActionFlags *ioActionFlags, const AudioTimeStamp *inTimeStamp, UInt32 inBusNumber, UInt32 inNumberFrames, AudioBufferList *ioData) {
 	uintptr_t end = (uintptr_t)data;
+	if(ioData->mBuffers[0].mData && ioData->mBuffers[1].mData)
+		crossfeed_filter_inplace_noninterleaved(&crossfeed, ioData->mBuffers[0].mData, ioData->mBuffers[1].mData, ioData->mBuffers[0].mDataByteSize / sizeof(float));
 	if(inTimeStamp->mSampleTime >= end) {
 		struct control_msg *msg = message_queue_message_alloc_blocking(&mq);
 		msg->type = MSG_FILEDONE;
@@ -24,6 +28,7 @@ static OSStatus render_callback(void *data, AudioUnitRenderActionFlags *ioAction
 int main(int argc, char *argv[]) {
 	int res = EXIT_FAILURE;
 	message_queue_init(&mq, sizeof(struct control_msg), 2);
+	crossfeed_init(&crossfeed);
 	if(argc < 2) {
 		fprintf(stderr, "Usage: %s /foo/bar\n", argc == 1 ? argv[0] : "crossfeed-player");
 		goto done;
