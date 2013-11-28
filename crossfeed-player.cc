@@ -83,10 +83,11 @@ done:
 int main(int argc, char *argv[]) {
 	int res = EXIT_FAILURE;
 	bool running = true;
+	bool shuffle = false;
 	message_queue_init(&mq, sizeof(struct control_msg), 2);
 	crossfeed_init(&crossfeed);
 	if(argc < 2) {
-		fprintf(stderr, "Usage: %s [-g dBFS] /foo/bar\n", argc == 1 ? argv[0] : "crossfeed-player");
+		fprintf(stderr, "Usage: %s [-s] [-g dBFS] /foo/bar\n", argc == 1 ? argv[0] : "crossfeed-player");
 		goto done;
 	}
 	for(int i=1;i<argc;++i) {
@@ -96,7 +97,17 @@ int main(int argc, char *argv[]) {
 			set_volume(atof(argv[i]));
 			continue;
 		}
+		if(strcmp(argv[i], "-s") == 0) {
+			shuffle = true;
+			continue;
+		}
 		playlist.push_back(argv[i]);
+	}
+	if(shuffle) {
+		srand(time(NULL));
+		random_shuffle(playlist.begin(), playlist.end(), [](unsigned int n) {
+			return rand() % n;
+		});
 	}
 	pthread_t audio_thread;
 	if(pthread_create(&audio_thread, NULL, &audio_threadproc, NULL)) {
