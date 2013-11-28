@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <termios.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <AudioToolbox/AudioToolbox.h>
 #include <vector>
@@ -10,14 +11,20 @@
 
 struct control_msg {
 	int id;
-	enum {MSG_FILEDONE} type;
+	enum {MSG_FILEDONE, MSG_BACK, MSG_FORWARD, MSG_EXIT} type;
 };
 
 static struct message_queue mq;
 static crossfeed_t crossfeed;
+static float scale_db = 0;
 static float scale = 1;
 
 static std::vector<const char *> playlist;
+
+static void set_volume(float volume) {
+	scale_db = volume;
+	scale = pow(10, scale_db/20);
+}
 
 static void event_handler(struct PlayerEvent *evt) {
 	struct control_msg *msg;
@@ -45,16 +52,24 @@ static void *audio_threadproc(void *data) {
 		goto done;
 	}
 	while(i != playlist.end()) {
-		fprintf(stderr, "Playing `%s'...\n", *i);
+		fprintf(stderr, "Playing `%s'...\r\n", *i);
 		if(CAPlayFile(&player, *i)) {
-			fprintf(stderr, "Error playing `%s'\n", *i);
+			fprintf(stderr, "Error playing `%s'\r\n", *i);
 			++i;
 			continue;
 		}
 		struct control_msg *msg = (struct control_msg *)message_queue_read(&mq);
 		switch(msg->type) {
+		case control_msg::MSG_BACK:
+			if(i != playlist.begin())
+				--i;
+			break;
+		case control_msg::MSG_FORWARD:
 		case control_msg::MSG_FILEDONE:
 			++i;
+			break;
+		case control_msg::MSG_EXIT:
+			i = playlist.end();
 			break;
 		}
 		message_queue_message_free(&mq, msg);
@@ -67,6 +82,7 @@ done:
 
 int main(int argc, char *argv[]) {
 	int res = EXIT_FAILURE;
+	bool running = true;
 	message_queue_init(&mq, sizeof(struct control_msg), 2);
 	crossfeed_init(&crossfeed);
 	if(argc < 2) {
@@ -77,8 +93,7 @@ int main(int argc, char *argv[]) {
 		if(strcmp(argv[i], "-g") == 0) {
 			if(++i > argc)
 				break;
-			float scale_db = atof(argv[i]);
-			scale = pow(10, scale_db/20);
+			set_volume(atof(argv[i]));
 			continue;
 		}
 		playlist.push_back(argv[i]);
@@ -88,7 +103,43 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Error starting audio control thread\n");
 		goto done;
 	}
+	struct termios t_orig_params, t_params;
+	tcgetattr(0, &t_params);
+	t_orig_params = t_params;
+	cfmakeraw(&t_params);
+	tcsetattr(0, TCSANOW, &t_params);
+	while(running) {
+		struct control_msg *msg;
+		switch(getchar()) {
+		case EOF:
+		case 'q':
+			msg = (struct control_msg *)message_queue_message_alloc_blocking(&mq);
+			msg->type = control_msg::MSG_EXIT;
+			message_queue_write(&mq, msg);
+			running = false;
+			break;
+		case '<':
+			msg = (struct control_msg *)message_queue_message_alloc_blocking(&mq);
+			msg->type = control_msg::MSG_BACK;
+			message_queue_write(&mq, msg);
+			break;
+		case '>':
+			msg = (struct control_msg *)message_queue_message_alloc_blocking(&mq);
+			msg->type = control_msg::MSG_FORWARD;
+			message_queue_write(&mq, msg);
+			break;
+		case '/':
+			set_volume(scale_db - 0.5);
+			fprintf(stderr, "Volume: %.1f\r\n", scale_db);
+			break;
+		case '*':
+			set_volume(scale_db + 0.5);
+			fprintf(stderr, "Volume: %.1f\r\n", scale_db);
+			break;
+		}
+	}
 	pthread_join(audio_thread, NULL);
+	tcsetattr(0, TCSANOW, &t_orig_params);
 	res = EXIT_SUCCESS;
 done:
 	message_queue_destroy(&mq);
