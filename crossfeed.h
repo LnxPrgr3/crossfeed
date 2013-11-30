@@ -9,6 +9,7 @@ typedef struct crossfeed_s {
 	float mid[74];
 	float side[74];
 	unsigned char pos;
+	unsigned char bypass;
 } crossfeed_t;
 
 void crossfeed_init(crossfeed_t *filter);

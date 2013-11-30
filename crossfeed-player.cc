@@ -139,13 +139,17 @@ int main(int argc, char *argv[]) {
 			msg->type = control_msg::MSG_FORWARD;
 			message_queue_write(&mq, msg);
 			break;
+		case 'c':
+			crossfeed.bypass = crossfeed.bypass ? 0 : 1;
+			fprintf(stderr, "XFeed: %s    \r", crossfeed.bypass ? "Off" : "On");
+			break;
 		case '/':
 			set_volume(scale_db - 0.5);
-			fprintf(stderr, "Volume: %.1f\r\n", scale_db);
+			fprintf(stderr, "Volume: %.1f  \r", scale_db);
 			break;
 		case '*':
 			set_volume(scale_db + 0.5);
-			fprintf(stderr, "Volume: %.1f\r\n", scale_db);
+			fprintf(stderr, "Volume: %.1f  \r", scale_db);
 			break;
 		}
 	}
