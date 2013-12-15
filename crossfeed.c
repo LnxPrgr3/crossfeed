@@ -26,8 +26,12 @@ static inline void crossfeed_process_sample(crossfeed_t *filter, float left, flo
 	float oside = 0;
 	filter->mid[(filter->pos + 24) % 74] = mid;
 	filter->side[filter->pos] = side;
-	for(unsigned int i=0;i<74;++i) {
-		oside += filter->side[(filter->pos + 74 - i) % 74] * kernel[i];
+	if(!filter->bypass) {
+		for(unsigned int i=0;i<74;++i) {
+			oside += filter->side[(filter->pos + 74 - i) % 74] * kernel[i];
+		}
+	} else {
+		oside = filter->side[(filter->pos + 74 - 24) % 74];
 	}
 	*oleft = filter->mid[filter->pos] + oside;
 	*oright = filter->mid[filter->pos] - oside;
