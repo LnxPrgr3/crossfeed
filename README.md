@@ -44,7 +44,8 @@ countless hours listening to music through it, so it's probably good enough to
 decide if you like the filter's effect!
 
 An example:
-	$ ./crossfeed-player -g -6 /.ITunes\ Music/Ingrid\ Michaelson/Be\ OK/01\ Be\ OK.m4a
+
+    $ ./crossfeed-player -g -6 /.ITunes\ Music/Ingrid\ Michaelson/Be\ OK/01\ Be\ OK.m4a
 
 This starts playing "Be OK" (on my system, where my iTunes Music folder is
 in a non-standard place) with the volume reduced 6dB.
@@ -53,7 +54,8 @@ I recommend letting it reduce volume by at least a couple decibels to prevent
 clipping.
 
 A crazier example:
-	$ find . -type f -not -name '.DS_Store' -not -name '._*' -print0 | xargs -0o ~/crossfeed-player/crossfeed-player -s -g -8
+
+    $ find . -type f -not -name '.DS_Store' -not -name '._*' -print0 | xargs -0o ~/crossfeed-player/crossfeed-player -s -g -8
 
 This shuffles and plays everything in the current working directory (assuming
 xargs doesn't have to call the player multiple times). It might try to play
