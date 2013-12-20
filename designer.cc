@@ -37,7 +37,7 @@ using namespace std;
 static FFTSetup fft_context;
 
 static float transfer_function(float x) {
-	return sqrtf((1 - expf(0.0000593514*x - 1.30903)) * 0.9);
+	return sqrtf(pow(10, (x <= 1000 ? 2 : 2 * log2(x/1000)) / -20));
 }
 
 static void compute_crossfeed_response(float *result, float *filter) {
