@@ -30,7 +30,7 @@
 #include "crossfeed.h"
 #include <string.h>
 
-static const float kernel[] = {
+static const float kernel_96k[] = {
 	3.0587726e-17, -0.0056460388, 0.051022124, -0.0094165057, -0.021792317, 0.028376782,
 	-0.028174553, 0.015822908, 0.010473754, -0.085965388, -0.053120401, -0.023303129, -0.027494108,
 	0.011219176, -0.015117921, -0.030191232, 0.064110525, 0.022067929, -0.034555659, 0.0035550345,
@@ -44,8 +44,18 @@ static const float kernel[] = {
 	0.070162848, 0.13571241, -0.031656493, -0.05358373, -0.010663124
 };
 
-void crossfeed_init(crossfeed_t *filter) {
+int crossfeed_init(crossfeed_t *filter, int samplerate) {
 	memset(filter, 0, sizeof(crossfeed_t));
+	switch(samplerate) {
+	case 96000:
+		filter->filter = kernel_96k;
+		filter->delay = 24;
+		filter->len = 74;
+		break;
+	default:
+		return -1;
+	}
+	return 0;
 }
 
 static inline void crossfeed_process_sample(crossfeed_t *filter, float left, float right,
@@ -53,18 +63,18 @@ static inline void crossfeed_process_sample(crossfeed_t *filter, float left, flo
 	float mid = (left + right) / 2;
 	float side = (left - right) / 2;
 	float oside = 0;
-	filter->mid[(filter->pos + 24) % 74] = mid;
+	filter->mid[(filter->pos + filter->delay) % filter->len] = mid;
 	filter->side[filter->pos] = side;
 	if(!filter->bypass) {
-		for(unsigned int i=0;i<74;++i) {
-			oside += filter->side[(filter->pos + 74 - i) % 74] * kernel[i];
+		for(unsigned int i=0;i<filter->len;++i) {
+			oside += filter->side[(filter->pos + filter->len - i) % filter->len] * filter->filter[i];
 		}
 	} else {
-		oside = filter->side[(filter->pos + 74 - 24) % 74];
+		oside = filter->side[(filter->pos + filter->len - filter->delay) % filter->len];
 	}
 	*oleft = filter->mid[filter->pos] + oside;
 	*oright = filter->mid[filter->pos] - oside;
-	filter->pos = (filter->pos + 1) % 74;
+	filter->pos = (filter->pos + 1) % filter->len;
 }
 
 void crossfeed_filter(crossfeed_t *filter, float *input, float *output, unsigned int size) {
