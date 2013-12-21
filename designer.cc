@@ -109,6 +109,8 @@ int main(int argc, char *argv[]) {
 	magic.len = 3 * magic.delay + 2;
 	magic.offset = 256 - magic.len / 2;
 	magic.limit = (22000 * 512) / magic.samplerate;
+	if(magic.limit > 256)
+		magic.limit = 256;
 	for(unsigned int i=0;i<256;++i) {
 		transfer_fn[i] = transfer_function((i * 512) / (float)magic.samplerate);
 	}
