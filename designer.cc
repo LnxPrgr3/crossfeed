@@ -36,40 +36,48 @@ using namespace std;
 
 static FFTSetup fft_context;
 
+struct magic {
+	int samplerate;
+	int delay;
+	int len;
+	int offset;
+	int limit;
+};
+
 static float transfer_function(float x) {
 	return sqrtf(pow(10, (x <= 1000 ? 2 : 2 * log2(x/1000)) / -20));
 }
 
-static void compute_crossfeed_response(float *result, float *filter) {
+static void compute_crossfeed_response(float *result, float *filter, const struct magic *magic) {
 	vDSP_vclr(result, 1, 512);
-	for(unsigned int i=0;i<74;++i) {
-		result[i+219] = -filter[i] / 2;
+	for(unsigned int i=0;i<magic->len;++i) {
+		result[i+magic->offset] = -filter[i] / 2;
 	}
-	result[219+24] += 0.5;
+	result[magic->offset+magic->delay] += 0.5;
 }
 
-static void compute_mono_response(float *result, float *filter) {
-	for(unsigned int i=0;i<74;++i) {
-		result[219+24+i] += filter[i] / 2;
+static void compute_mono_response(float *result, float *filter, const struct magic *magic) {
+	for(unsigned int i=0;i<magic->len;++i) {
+		result[magic->offset+magic->delay+i] += filter[i] / 2;
 	}
 }
 
-static double compute_error(float *filter, float *transfer_fn) {
+static double compute_error(float *filter, float *transfer_fn, const struct magic *magic) {
 	float result[512];
 	float response_memory[512];
 	float response_interleaved[512];
 	DSPSplitComplex response = {response_memory, response_memory + 256};
 	float crossfeed_error = 0, mono_error = 0;
-	compute_crossfeed_response(result, filter);
+	compute_crossfeed_response(result, filter, magic);
 	vDSP_ctoz((DSPComplex *)result, 2, &response, 1, 256);
 	vDSP_fft_zrip(fft_context, &response, 1, 9, FFT_FORWARD);
 	vDSP_ztoc(&response, 1, (DSPComplex *)response_interleaved, 2, 256);
 	vDSP_polar(response_interleaved, 2, response_interleaved, 2, 256);
-	for(unsigned int i=0;i<117;++i) {
+	for(unsigned int i=0;i<magic->limit;++i) {
 		float err = transfer_fn[i] - 0.5 * response_interleaved[2*i];
 		crossfeed_error += err*err;
 	}
-	compute_mono_response(result, filter);
+	compute_mono_response(result, filter, magic);
 	vDSP_ctoz((DSPComplex *)result, 2, &response, 1, 256);
 	vDSP_fft_zrip(fft_context, &response, 1, 9, FFT_FORWARD);
 	vDSP_ztoc(&response, 1, (DSPComplex *)response_interleaved, 2, 256);
@@ -78,7 +86,7 @@ static double compute_error(float *filter, float *transfer_fn) {
 		float err = 1 - 0.5 * response_interleaved[2*i];
 		mono_error += err*err;
 	}
-	return (mono_error / 256) * M_SQRT2 + (crossfeed_error / 117) * M_SQRT1_2;
+	return (mono_error / 256) * M_SQRT2 + (crossfeed_error / magic->limit) * M_SQRT1_2;
 }
 
 static double window_fn(int i, int N) {
@@ -95,36 +103,42 @@ int main(int argc, char *argv[]) {
 	float err;
 	unsigned int pass = 0;
 	const float delta = 0.00001;
+	struct magic magic;
+	magic.samplerate = argc > 1 ? atoi(argv[1]) : 96000;
+	magic.delay = (magic.samplerate * 250) / 1000000;
+	magic.len = 3 * magic.delay + 2;
+	magic.offset = 256 - magic.len / 2;
+	magic.limit = (22000 * 512) / magic.samplerate;
 	for(unsigned int i=0;i<256;++i) {
-		transfer_fn[i] = transfer_function((i * 256) / 48000.);
+		transfer_fn[i] = transfer_function((i * 512) / (float)magic.samplerate);
 	}
-	filter[24] = 1;
-	filter[49] = -1;
-	for(unsigned int i=0;i<74;++i) {
-		if(i < 24) {
-			weight[i] = window_fn(i, 49);
-		} else if (i < 50) {
+	filter[magic.delay] = 1;
+	filter[2*magic.delay+1] = -1;
+	for(unsigned int i=0;i<magic.len;++i) {
+		if(i < magic.delay) {
+			weight[i] = window_fn(i, 2*magic.delay+1);
+		} else if (i < magic.len - magic.delay) {
 			weight[i] = 1;
 		} else {
-			weight[i] = weight[74 - i];
+			weight[i] = weight[magic.len - i];
 		}
 	}
 	fft_context = vDSP_create_fftsetup(9, 2);
-	err = compute_error(filter, transfer_fn);
+	err = compute_error(filter, transfer_fn, &magic);
 	while(true) {
 		if(err < 1. / (1 << 24) || mu < 1. / (1 << 24))
 			break;
 		float new_filter[74];
 		memcpy(new_filter, filter, 74*sizeof(float));
-		for(unsigned int i=0; i<74; ++i) {
+		for(unsigned int i=0; i<magic.len; ++i) {
 			new_filter[i] += delta;
-			slope[i] = (compute_error(new_filter, transfer_fn) - err) / delta;
+			slope[i] = (compute_error(new_filter, transfer_fn, &magic) - err) / delta;
 			new_filter[i] = filter[i];
 		}
-		for(unsigned int i=0; i<74; ++i) {
+		for(unsigned int i=0; i<magic.len; ++i) {
 			new_filter[i] -= slope[i] * weight[i] * mu;
 		}
-		float new_err = compute_error(new_filter, transfer_fn);
+		float new_err = compute_error(new_filter, transfer_fn, &magic);
 		if(new_err < err) {
 			memcpy(filter, new_filter, 74*sizeof(float));
 			err = new_err;
@@ -138,7 +152,7 @@ int main(int argc, char *argv[]) {
 	}
 	ofstream output("filter.txt");
 	output << setprecision(numeric_limits<float>::digits10+2);
-	for(unsigned int i=0;i<74;++i) {
+	for(unsigned int i=0;i<magic.len;++i) {
 		output << filter[i] << '\n';
 	}
 	vDSP_destroy_fftsetup(fft_context);
