@@ -54,6 +54,7 @@ struct Player {
 	AudioUnit fileAU;
 	AudioFileID audioFile;
 	uintptr_t samples;
+	int samplerate;
 	int playing;
 	PlayerEventHandler handleEvent;
 };

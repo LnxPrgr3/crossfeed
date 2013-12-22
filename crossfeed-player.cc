@@ -80,6 +80,10 @@ static void *audio_threadproc(void *data) {
 		fprintf(stderr, "Error initializing audio output\n");
 		goto done;
 	}
+	if(crossfeed_init(&crossfeed, player.samplerate)) {
+		fprintf(stderr, "Filter not available for %dHz\n", player.samplerate);
+		goto destroy_player;
+	}
 	while(i != playlist.end()) {
 		fprintf(stderr, "Playing `%s'...\r\n", *i);
 		if(CAPlayFile(&player, *i)) {
@@ -104,6 +108,7 @@ static void *audio_threadproc(void *data) {
 		message_queue_message_free(&mq, msg);
 		CAStopPlayback(&player);
 	}
+destroy_player:
 	CADestroyPlayer(&player);
 done:
 	return data;
@@ -114,7 +119,6 @@ int main(int argc, char *argv[]) {
 	bool running = true;
 	bool shuffle = false;
 	message_queue_init(&mq, sizeof(struct control_msg), 2);
-	crossfeed_init(&crossfeed, 96000);
 	if(argc < 2) {
 		fprintf(stderr, "Usage: %s [-s] [-g dBFS] /foo/bar\n", argc == 1 ? argv[0] : "crossfeed-player");
 		goto done;

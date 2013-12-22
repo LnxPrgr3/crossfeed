@@ -73,12 +73,19 @@ OSStatus CAInitPlayer(struct Player *player, PlayerEventHandler eventHandler) {
 		goto close_graph;
 	if(AUGraphNodeInfo(player->graph, player->fileNode, NULL, &player->fileAU))
 		goto close_graph;
+	AudioUnit outputAU;
+	if(AUGraphNodeInfo(player->graph, player->outputNode, NULL, &outputAU))
+		goto close_graph;
 	AudioStreamBasicDescription outputFormat;
 	UInt32 propsize = sizeof(AudioStreamBasicDescription);
+	if(AudioUnitGetProperty(outputAU, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &outputFormat, &propsize))
+		goto close_graph;
+	player->samplerate = outputFormat.mSampleRate;
+	propsize = sizeof(AudioStreamBasicDescription);
 	if(AudioUnitGetProperty(player->fileAU, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &outputFormat, &propsize))
 		goto close_graph;
+	outputFormat.mSampleRate = player->samplerate;
 	outputFormat.mFormatFlags = (outputFormat.mFormatFlags & ~(kAudioFormatFlagIsSignedInteger)) | kLinearPCMFormatFlagIsFloat;
-	outputFormat.mSampleRate = 96000.;
 	outputFormat.mChannelsPerFrame = 2;
 	if(AudioUnitSetProperty(player->fileAU, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &outputFormat, sizeof(outputFormat)))
 		goto close_graph;
@@ -117,7 +124,7 @@ OSStatus CAPlayFile(struct Player *player, const char *path) {
 	propsize = sizeof(packets);
 	if(AudioFileGetProperty(player->audioFile, kAudioFilePropertyAudioDataPacketCount, &propsize, &packets))
 		goto uninit_graph;
-	player->samples = packets * fileFormat.mFramesPerPacket * 96000/(fileFormat.mSampleRate);
+	player->samples = packets * fileFormat.mFramesPerPacket * player->samplerate/(fileFormat.mSampleRate);
 	ScheduledAudioFileRegion rgn = {
 		.mTimeStamp = {
 			.mFlags = kAudioTimeStampSampleTimeValid,
