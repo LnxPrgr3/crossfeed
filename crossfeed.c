@@ -126,9 +126,9 @@ int crossfeed_init(crossfeed_t *filter, int samplerate) {
 
 static inline void crossfeed_process_sample(crossfeed_t *filter, float left, float right,
                                             float *oleft, float *oright) {
-	float tleft = left - right;
-	float mid = left + right;
-	float tright = right - left;
+	float tleft = (left - right) / 2;
+	float mid = (left + right) / 2;
+	float tright = (right - left) / 2;
 	float toleft = 0, toright = 0;
 	filter->left[filter->pos] = tleft;
 	filter->mid[(filter->pos + filter->delay) % filter->len] = mid;
@@ -136,16 +136,16 @@ static inline void crossfeed_process_sample(crossfeed_t *filter, float left, flo
 	if(!filter->bypass) {
 		for(unsigned int i=0;i<filter->len;++i) {
 			toleft += filter->left[(filter->pos + filter->len - i) % filter->len] * filter->filter[2*i];
-			toleft += filter->left[(filter->pos + filter->len - i) % filter->len] * filter->filter[2*i+1];
+			toleft += filter->right[(filter->pos + filter->len - i) % filter->len] * filter->filter[2*i+1];
 			toright += filter->right[(filter->pos + filter->len - i) % filter->len] * filter->filter[2*i];
-			toright += filter->right[(filter->pos + filter->len - i) % filter->len] * filter->filter[2*i+1];
+			toright += filter->left[(filter->pos + filter->len - i) % filter->len] * filter->filter[2*i+1];
 		}
 	} else {
 		toleft = filter->left[(filter->pos + filter->len - filter->delay) % filter->len];
 		toright = filter->right[(filter->pos + filter->len - filter->delay) % filter->len];
 	}
-	*oleft = filter->mid[filter->pos] + (toleft - toright) / 2;
-	*oright = filter->mid[filter->pos] - (toleft + toright) / 2;
+	*oleft = filter->mid[filter->pos] + 0.5*(toleft - toright);
+	*oright = filter->mid[filter->pos] - 0.5*(toleft + toright);
 	filter->pos = (filter->pos + 1) % filter->len;
 }
 
