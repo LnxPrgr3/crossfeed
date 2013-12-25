@@ -47,7 +47,7 @@ struct magic {
 };
 
 static float transfer_function(float x) {
-	return sqrt(pow(10, (x <= 1500 ? 2 : 2 * log2(x/750)) / -20));
+	return pow(10, (x <= 1500 ? 2 : 2 * log2(x/750)) / -20);
 }
 
 static double window_fn(int i, int N) {
@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
 		ofstream dfile(fn("delay-", rate, "k.txt"));
 		for(int i=1;i<fft_len/2;++i) {
 			float freq = (i * rate) / (float)fft_len;
-			float delay = (result.realp[i] - sqrt(pow(10, -2./20))) * 250;
+			float delay = (result.realp[i] - pow(10, -2./20)) * 250;
 			float phase = 2*M_PI*((delay / 1000000.) / (1. / freq));
 			result.imagp[i] = result.realp[i]*sin(phase);
 			result.realp[i] = result.realp[i]*cos(phase);
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
 		}
 		{
 			float freq = rate/2;
-			float delay = (transfer_function(freq) - sqrt(pow(10, -2./20))) * 250;
+			float delay = (transfer_function(freq) - pow(10, -2./20)) * 250;
 			float phase = 2*M_PI*((delay / 1000000.) / (1. / freq));
 			result.imagp[0] = transfer_function(rate/2)*cos(phase);
 		}
@@ -104,11 +104,31 @@ int main(int argc, char *argv[]) {
 		for(int i=0;i<piece_len;++i) {
 			filter[i+delay] = response[(fft_len - (piece_len / 2) + i) % fft_len] * window_fn(i, piece_len);
 		}
+		for(int i=0;i<fft_len/2;++i) {
+			float freq = (i * rate) / (float)fft_len;
+			result.realp[i] = 1;
+			result.imagp[i] = 0;
+		}
+		for(int i=1;i<fft_len/2;++i) {
+			float freq = (i * rate) / (float)fft_len;
+			float delay = (pow(10, -2./20) - transfer_function(freq)) * 250;
+			float phase = 2*M_PI*((delay / 1000000.) / (1. / freq));
+			result.imagp[i] = result.realp[i]*sin(phase);
+			result.realp[i] = result.realp[i]*cos(phase);
+		}
+		{
+			float freq = rate/2;
+			float delay = (pow(10, -2./20) - transfer_function(freq)) * 250;
+			float phase = 2*M_PI*((delay / 1000000.) / (1. / freq));
+			result.imagp[0] = cos(phase);
+		}
+		vDSP_fft_zrip(fft_context, &result, 1, fft_len_log2, FFT_INVERSE);
+		vDSP_ztoc(&result, 1, (DSPComplex *)response, 2, fft_len/2);
+		vDSP_vsdiv(response, 1, &scalar, response, 1, fft_len);
 		memset(samechan, 0, sizeof(float)*(piece_len+delay));
 		for(int i=0;i<piece_len;++i) {
-			samechan[i] = -filter[piece_len+delay-i-1];
+			samechan[i] = response[(fft_len - (piece_len / 2) + i) % fft_len] * window_fn(i, piece_len);
 		}
-		samechan[piece_len/2] += 1;
 		ofstream rfile(fn("filter-", rate, "k.txt"));
 		for(int i=0;i<piece_len+delay;++i) {
 			rfile << samechan[i] << '\n' << filter[i] << '\n';
