@@ -153,7 +153,7 @@ static inline void crossfeed_process_sample(crossfeed_t *filter, float left, flo
 		toright = filter->right[(filter->pos + filter->len - filter->delay) % filter->len];
 	}
 	*oleft = filter->mid[filter->pos] + 0.5*(toleft - toright);
-	*oright = filter->mid[filter->pos] - 0.5*(toleft + toright);
+	*oright = filter->mid[filter->pos] - 0.5*(toleft - toright);
 	filter->pos = (filter->pos + 1) % filter->len;
 }
 
