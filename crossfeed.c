@@ -115,16 +115,16 @@ int crossfeed_init(crossfeed_t *filter, int samplerate) {
 	switch(samplerate) {
 	case 96000:
 		filter->filter = kernel_96k;
-		filter->delay = 99;
+		filter->delay = 61;
 		filter->len = 147;
 		break;
 	case 48000:
 		filter->filter = kernel_48k;
-		filter->delay = 49;
+		filter->delay = 30;
 		filter->len = 73;
 	case 44100:
 		filter->filter = kernel_44k;
-		filter->delay = 46;
+		filter->delay = 28;
 		filter->len = 68;
 	default:
 		return -1;
