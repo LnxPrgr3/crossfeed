@@ -38,104 +38,79 @@ using namespace std;
 
 static FFTSetup fft_context;
 
-struct magic {
-	int samplerate;
-	int delay;
-	int len;
-	int offset;
-	int limit;
-};
-
 static float transfer_function(float x) {
 	return pow(10, (x <= 1500 ? 2 : 2 * log2(x/750)) / -20);
 }
 
-static double window_fn(int i, int N) {
-	return 0.42 - 0.5 * cos((2*M_PI*i)/(N-1)) + 0.08 * cos((4*M_PI*i)/(N-1));
+static void compute_response(float *result_interleaved, float x) {
+	float a = transfer_function(0) * (1 - x);
+	float b = x;
+	float response[1024] = {0};
+	float result_memory[1024];
+	DSPSplitComplex result = {result_memory, result_memory + 512};
+	response[0] = a;
+	for(int i=1;i<1024;++i) {
+		response[i] = b*response[i-1];
+	}
+	vDSP_ctoz((DSPComplex *)response, 2, &result, 1, 512);
+	vDSP_fft_zrip(fft_context, &result, 1, 10, FFT_FORWARD);
+	vDSP_ztoc(&result, 1, (DSPComplex *)result_interleaved, 2, 512);
+	vDSP_polar(result_interleaved, 2, result_interleaved, 2, 512);
+	float higha0 = (1/transfer_function(0)) * ((1+x)/2);
+	float higha1 = -higha0;
+	response[0] = higha0;
+	response[1] = higha1 + higha0 * b;
+	for(int i=2;i<1024;++i) {
+		response[i] = b*response[i-1];
+	}
+	vDSP_ctoz((DSPComplex *)response, 2, &result, 1, 512);
+	vDSP_fft_zrip(fft_context, &result, 1, 10, FFT_FORWARD);
+	vDSP_ztoc(&result, 1, (DSPComplex *)(result_interleaved+1024), 2, 512);
+	vDSP_polar(result_interleaved+1024, 2, result_interleaved+1024, 2, 512);
 }
 
-static string fn(const char *prefix, int samplerate, const char *postfix) {
-	std::stringstream res;
-	res << prefix << (samplerate/1000) << postfix;
-	return res.str();
+static float compute_error(float x) {
+	float result_interleaved[2048];
+	compute_response(result_interleaved, x);
+	float error = 0;
+	for(int i=0;i<512;++i) {
+		float freq = round(i * 44100) / 1024.;
+		float mono_resp = 0.5*result_interleaved[2*i] + 0.5*result_interleaved[2*i+1024];
+		float xfeed_resp = 0.5*result_interleaved[2*i+1024] / 0.5*result_interleaved[2*i];
+		float mono_err = mono_resp - 1;
+		float xfeed_err = (0.5*result_interleaved[2*i] - transfer_function(freq)) / transfer_function(freq);
+		error += (mono_err*mono_err) + (xfeed_err*xfeed_err);
+	}
+	return error / 1024.;
+}
+
+static float find_lowest_error(float start, float end) {
+	if((end - start) < 1/(float)(1 << 24))
+		return start;
+	float start_error = compute_error(start);
+	float end_error = compute_error(end);
+	return start_error < end_error ? find_lowest_error(start, (end-start)/2+start) : find_lowest_error((end-start)/2+start, end);
 }
 
 int main(int argc, char *argv[]) {
-	const vector<int> rates = {96000, 48000, 44100};
-	ios_base::sync_with_stdio(false);
 	fft_context = vDSP_create_fftsetup(12, FFT_RADIX2);
-	for(const auto rate: rates) {
-		cout << rate << "Hz kernel:" << endl;
-		int piece_len = round(1.88571428571428571428 * (rate/1500.) + 1);
-		piece_len += 1 - piece_len % 2;
-		int fft_len_log2 = ceil(log2(8*piece_len));
-		int fft_len = 1 << fft_len_log2;
-		int delay = (250 * rate) / 1000000.;
-		float scalar = fft_len;
-		float response[fft_len];
-		float result_memory[fft_len];
-		DSPSplitComplex result = {result_memory, result_memory + fft_len/2};
-		float filter[piece_len+delay];
-		float samechan[piece_len+delay];
-		for(int i=0;i<fft_len/2;++i) {
-			float freq = (i * rate) / (float)fft_len;
-			result.realp[i] = transfer_function(freq);
-			result.imagp[i] = 0;
+	float b = 0, err = compute_error(0);
+	for(float i=0;i<1;i += 1/(float)(1 << 16)) {
+		float new_err = compute_error(i);
+		if(new_err < err) {
+			err = new_err;
+			b = i;
 		}
-		ofstream dfile(fn("delay-", rate, "k.txt"));
-		for(int i=1;i<fft_len/2;++i) {
-			float freq = (i * rate) / (float)fft_len;
-			float delay = (result.realp[i] - pow(10, -2./20)) * 250;
-			float phase = 2*M_PI*((delay / 1000000.) / (1. / freq));
-			result.imagp[i] = result.realp[i]*sin(phase);
-			result.realp[i] = result.realp[i]*cos(phase);
-			dfile << freq << '\t' << phase << '\n';
-		}
-		{
-			float freq = rate/2;
-			float delay = (transfer_function(freq) - pow(10, -2./20)) * 250;
-			float phase = 2*M_PI*((delay / 1000000.) / (1. / freq));
-			result.imagp[0] = transfer_function(rate/2)*cos(phase);
-		}
-		vDSP_fft_zrip(fft_context, &result, 1, fft_len_log2, FFT_INVERSE);
-		vDSP_ztoc(&result, 1, (DSPComplex *)response, 2, fft_len/2);
-		vDSP_vsdiv(response, 1, &scalar, response, 1, fft_len);
-		memset(filter, 0, sizeof(float)*(piece_len+delay));
-		for(int i=0;i<piece_len;++i) {
-			filter[i+delay] = response[(fft_len - (piece_len / 2) + i) % fft_len] * window_fn(i, piece_len);
-		}
-		for(int i=0;i<fft_len/2;++i) {
-			float freq = (i * rate) / (float)fft_len;
-			result.realp[i] = 1;
-			result.imagp[i] = 0;
-		}
-		for(int i=1;i<fft_len/2;++i) {
-			float freq = (i * rate) / (float)fft_len;
-			float delay = (pow(10, -2./20) - transfer_function(freq)) * 250;
-			float phase = 2*M_PI*((delay / 1000000.) / (1. / freq));
-			result.imagp[i] = result.realp[i]*sin(phase);
-			result.realp[i] = result.realp[i]*cos(phase);
-		}
-		{
-			float freq = rate/2;
-			float delay = (pow(10, -2./20) - transfer_function(freq)) * 250;
-			float phase = 2*M_PI*((delay / 1000000.) / (1. / freq));
-			result.imagp[0] = cos(phase);
-		}
-		vDSP_fft_zrip(fft_context, &result, 1, fft_len_log2, FFT_INVERSE);
-		vDSP_ztoc(&result, 1, (DSPComplex *)response, 2, fft_len/2);
-		vDSP_vsdiv(response, 1, &scalar, response, 1, fft_len);
-		memset(samechan, 0, sizeof(float)*(piece_len+delay));
-		for(int i=0;i<piece_len;++i) {
-			samechan[i] = response[(fft_len - (piece_len / 2) + i) % fft_len] * window_fn(i, piece_len);
-		}
-		ofstream rfile(fn("filter-", rate, "k.txt"));
-		for(int i=0;i<piece_len+delay;++i) {
-			rfile << samechan[i] << '\n' << filter[i] << '\n';
-		}
-		cout << "\tComponent len: " << piece_len << endl;
-		cout << "\tFFT len: " << fft_len << "(2^" << fft_len_log2 << ")" << endl;
-		cout << "\tCrossfeed delay: " << delay << endl;
+		cerr << i*100 << "%, err = " << err << "        \r" << flush;
 	}
+	b = find_lowest_error(b-1/(float)(1 << 16), b+1/(float)(1 << 16));
+	//float b = find_lowest_error(0, 1);
+	float result_interleaved[2048];
+	compute_response(result_interleaved, b);
+	for(int i=0;i<512;++i) {
+		float freq = round(i * 44100) / 1024.;
+		cout << freq << '\t' << 20*log10(transfer_function(freq)) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i]) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i+1024]) << '\n';
+	}
+	cerr << "a = " << transfer_function(0) * (1 - b) << ", b = " << b << endl;
 	vDSP_destroy_fftsetup(fft_context);
 }
