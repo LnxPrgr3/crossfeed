@@ -42,26 +42,32 @@ static float transfer_function(float x) {
 	return pow(10, (x <= 1500 ? 2 : 2 * log2(x/750)) / -20);
 }
 
-static void compute_response(float *result_interleaved, float x) {
-	float a = transfer_function(0) * (1 - x);
-	float b = x;
+static void compute_response(float *result_interleaved, const vector<float> &xs) {
 	float response[1024] = {0};
 	float result_memory[1024];
 	DSPSplitComplex result = {result_memory, result_memory + 512};
-	response[0] = a;
-	for(int i=1;i<1024;++i) {
-		response[i] = b*response[i-1];
+	for(int i=0;i<xs.size()/2;++i) {
+		float a = xs[2*i] * (1 - xs[2*i+1]);
+		float b = xs[2*i+1];
+		response[0] += a;
+		for(int i=1;i<1024;++i) {
+			response[i] = b*response[i-1];
+		}
 	}
 	vDSP_ctoz((DSPComplex *)response, 2, &result, 1, 512);
 	vDSP_fft_zrip(fft_context, &result, 1, 10, FFT_FORWARD);
 	vDSP_ztoc(&result, 1, (DSPComplex *)result_interleaved, 2, 512);
 	vDSP_polar(result_interleaved, 2, result_interleaved, 2, 512);
-	float higha0 = (1/transfer_function(0)) * ((1+x)/2);
-	float higha1 = -higha0;
-	response[0] = higha0;
-	response[1] = higha1 + higha0 * b;
-	for(int i=2;i<1024;++i) {
-		response[i] = b*response[i-1];
+	memset(response, 0, sizeof(response));
+	for(int i=0;i<xs.size()/2;++i) {
+		float higha0 = (1/xs[2*i]) * ((1+xs[2*i+1])/2);
+		float higha1 = -higha0;
+		float b = xs[2*i+1];
+		response[0] += higha0;
+		response[1] += higha1 + higha0 * b;
+		for(int i=2;i<1024;++i) {
+			response[i] = b*response[i-1];
+		}
 	}
 	vDSP_ctoz((DSPComplex *)response, 2, &result, 1, 512);
 	vDSP_fft_zrip(fft_context, &result, 1, 10, FFT_FORWARD);
@@ -69,9 +75,9 @@ static void compute_response(float *result_interleaved, float x) {
 	vDSP_polar(result_interleaved+1024, 2, result_interleaved+1024, 2, 512);
 }
 
-static float compute_error(float x) {
+static float compute_error(const vector<float> &xs) {
 	float result_interleaved[2048];
-	compute_response(result_interleaved, x);
+	compute_response(result_interleaved, xs);
 	float error = 0;
 	for(int i=0;i<512;++i) {
 		float freq = round(i * 44100) / 1024.;
@@ -79,38 +85,54 @@ static float compute_error(float x) {
 		float xfeed_resp = 0.5*result_interleaved[2*i+1024] / 0.5*result_interleaved[2*i];
 		float mono_err = mono_resp - 1;
 		float xfeed_err = (0.5*result_interleaved[2*i] - transfer_function(freq)) / transfer_function(freq);
-		error += (mono_err*mono_err) + (xfeed_err*xfeed_err);
+		error += (mono_err*mono_err)*M_SQRT2 + (xfeed_err*xfeed_err) * M_SQRT1_2;
 	}
 	return error / 1024.;
 }
 
-static float find_lowest_error(float start, float end) {
-	if((end - start) < 1/(float)(1 << 24))
-		return start;
-	float start_error = compute_error(start);
-	float end_error = compute_error(end);
-	return start_error < end_error ? find_lowest_error(start, (end-start)/2+start) : find_lowest_error((end-start)/2+start, end);
-}
-
 int main(int argc, char *argv[]) {
-	fft_context = vDSP_create_fftsetup(12, FFT_RADIX2);
-	float b = 0, err = compute_error(0);
-	for(float i=0;i<1;i += 1/(float)(1 << 16)) {
-		float new_err = compute_error(i);
-		if(new_err < err) {
-			err = new_err;
-			b = i;
+	fft_context = vDSP_create_fftsetup(10, FFT_RADIX2);
+	vector<float> xs = {};
+	float err = compute_error(xs);
+	while(err > 0.1) {
+		xs.push_back(0.5);
+		xs.push_back(0.5);
+		vector<float> slope(xs.size());
+		float mu = 0.2;
+		const float delta = 0.00001;
+		err = compute_error(xs);
+		while(true) {
+			if(err < 0.005 || mu < 1. / (1 << 24))
+				break;
+			vector<float> new_xs(xs);
+			for(int i=0;i<new_xs.size();++i) {
+				new_xs[i] += delta;
+				//new_xs[i] = i % 2 ? (new_xs[i] < 0 ? 0 : (new_xs[i] > 1 ? 1 : new_xs[i])) : new_xs[i];
+				slope[i] = (compute_error(new_xs) - err) / delta;
+				new_xs[i] = xs[i];
+			}
+			for(int i=0;i<new_xs.size();++i)  {
+				new_xs[i] -= slope[i] * mu;
+				//new_xs[i] = i % 2 ? (new_xs[i] < 0 ? 0 : (new_xs[i] > 1 ? 1 : new_xs[i])) : new_xs[i];
+			}
+			float new_err = compute_error(new_xs);
+			if(new_err < err) {
+				xs = move(new_xs);
+				err = new_err;
+			} else {
+				mu /= 2;
+			}
 		}
-		cerr << i*100 << "%, err = " << err << "        \r" << flush;
+		cerr << "Size: " << xs.size()/2 << ", error: " << err << endl;
 	}
-	b = find_lowest_error(b-1/(float)(1 << 16), b+1/(float)(1 << 16));
-	//float b = find_lowest_error(0, 1);
 	float result_interleaved[2048];
-	compute_response(result_interleaved, b);
+	compute_response(result_interleaved, xs);
 	for(int i=0;i<512;++i) {
 		float freq = round(i * 44100) / 1024.;
-		cout << freq << '\t' << 20*log10(transfer_function(freq)) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i]) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i+1024]) << '\n';
+		cout << freq << '\t' << 20*log10(transfer_function(freq)) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i]) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i]+0.5*result_interleaved[2*i+1024]) << '\n';
 	}
-	cerr << "a = " << transfer_function(0) * (1 - b) << ", b = " << b << endl;
+	for(float x: xs) {
+		cerr << x << endl;
+	}
 	vDSP_destroy_fftsetup(fft_context);
 }

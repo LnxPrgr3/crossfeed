@@ -35,10 +35,10 @@ int crossfeed_init(crossfeed_t *filter, float samplerate) {
 	memset(filter, 0, sizeof(crossfeed_t));
 	if(samplerate < 32000 || samplerate > 192000)
 		return -1;
-	filter->b = 0.488533 / (samplerate / 44100);
+	filter->b = 0.637561 / (samplerate / 44100);
 	//filter->b = 0.5 / (samplerate / 96000);
-	filter->a = pow(10, -2/20.) * (1 - filter->b);
-	filter->higha0 = (1/pow(10, -2/20.)) * ((1 + filter->b)/2);
+	filter->a = 1.16054 * (1 - filter->b);
+	filter->higha0 = (1/1.16054) * ((1 + filter->b)/2);
 	filter->higha1 = -filter->higha0;
 	filter->delay = round((samplerate * 250) / 1000000);
 	return 0;
