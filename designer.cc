@@ -46,7 +46,7 @@ static void compute_response(float *result_interleaved, const vector<float> &xs)
 	float response[1024] = {0};
 	float result_memory[1024];
 	DSPSplitComplex result = {result_memory, result_memory + 512};
-	for(int i=0;i<xs.size()/2;++i) {
+	for(int i=0;i<xs.size()/4;++i) {
 		float a = xs[2*i] * (1 - xs[2*i+1]);
 		float b = xs[2*i+1];
 		response[0] += a;
@@ -59,10 +59,10 @@ static void compute_response(float *result_interleaved, const vector<float> &xs)
 	vDSP_ztoc(&result, 1, (DSPComplex *)result_interleaved, 2, 512);
 	vDSP_polar(result_interleaved, 2, result_interleaved, 2, 512);
 	memset(response, 0, sizeof(response));
-	for(int i=0;i<xs.size()/2;++i) {
-		float higha0 = (1/xs[2*i]) * ((1+xs[2*i+1])/2);
+	for(int i=0;i<xs.size()/4;++i) {
+		float higha0 = (xs[xs.size()/2+2*i]) * ((1+xs[xs.size()/2+2*i+1])/2);
 		float higha1 = -higha0;
-		float b = xs[2*i+1];
+		float b = xs[xs.size()/2+2*i+1];
 		response[0] += higha0;
 		response[1] += higha1 + higha0 * b;
 		for(int i=2;i<1024;++i) {
@@ -81,10 +81,10 @@ static float compute_error(const vector<float> &xs) {
 	float error = 0;
 	for(int i=0;i<512;++i) {
 		float freq = round(i * 44100) / 1024.;
-		float mono_resp = 0.5*result_interleaved[2*i] + 0.5*result_interleaved[2*i+1024];
-		float xfeed_resp = 0.5*result_interleaved[2*i+1024] / 0.5*result_interleaved[2*i];
+		float mono_resp = (1 + 0.5*result_interleaved[2*i]) * 0.5*result_interleaved[2*i+1024];
+		float xfeed_resp = 0.5*result_interleaved[2*i];
 		float mono_err = mono_resp - 1;
-		float xfeed_err = (0.5*result_interleaved[2*i] - transfer_function(freq)) / transfer_function(freq);
+		float xfeed_err = (xfeed_resp - transfer_function(freq)) / transfer_function(freq);
 		error += (mono_err*mono_err)*M_SQRT2 + (xfeed_err*xfeed_err) * M_SQRT1_2;
 	}
 	return error / 1024.;
@@ -94,9 +94,11 @@ int main(int argc, char *argv[]) {
 	fft_context = vDSP_create_fftsetup(10, FFT_RADIX2);
 	vector<float> xs = {};
 	float err = compute_error(xs);
-	while(err > 0.1) {
-		xs.push_back(0.5);
-		xs.push_back(0.5);
+	while(err > 0.1 && xs.size() < 4) {
+		xs.push_back(1);
+		xs.push_back(0);
+		xs.push_back(1);
+		xs.push_back(0);
 		vector<float> slope(xs.size());
 		float mu = 0.2;
 		const float delta = 0.00001;
@@ -123,13 +125,13 @@ int main(int argc, char *argv[]) {
 				mu /= 2;
 			}
 		}
-		cerr << "Size: " << xs.size()/2 << ", error: " << err << endl;
+		cerr << "Size: " << xs.size()/4 << ", error: " << err << endl;
 	}
 	float result_interleaved[2048];
 	compute_response(result_interleaved, xs);
 	for(int i=0;i<512;++i) {
 		float freq = round(i * 44100) / 1024.;
-		cout << freq << '\t' << 20*log10(transfer_function(freq)) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i]) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i]+0.5*result_interleaved[2*i+1024]) << '\n';
+		cout << freq << '\t' << 20*log10(transfer_function(freq)) << '\t' << freq << '\t' << 20*log10(0.5*result_interleaved[2*i]) << '\t' << freq << '\t' << 20*log10((1 + 0.5*result_interleaved[2*i])*0.5*result_interleaved[2*i+1024]) << '\n';
 	}
 	for(float x: xs) {
 		cerr << x << endl;

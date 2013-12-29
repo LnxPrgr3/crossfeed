@@ -37,7 +37,7 @@ extern "C" {
 typedef struct crossfeed_s {
 	float side[48];
 	float a, b;
-	float higha0, higha1;
+	float higbb, higha0, higha1;
 	float feedback, highfeedback;
 	unsigned char delay;
 	unsigned char pos;

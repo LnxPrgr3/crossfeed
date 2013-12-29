@@ -35,10 +35,11 @@ int crossfeed_init(crossfeed_t *filter, float samplerate) {
 	memset(filter, 0, sizeof(crossfeed_t));
 	if(samplerate < 32000 || samplerate > 192000)
 		return -1;
-	filter->b = 0.637561 / (samplerate / 44100);
+	filter->b = 0.287681 / (samplerate / 44100);
 	//filter->b = 0.5 / (samplerate / 96000);
-	filter->a = 1.16054 * (1 - filter->b);
-	filter->higha0 = (1/1.16054) * ((1 + filter->b)/2);
+	filter->a = 0.613331 * (1 - filter->b);
+	filter->higbb = 0.995784 / (samplerate / 44100);
+	filter->higha0 = 0.688758 * ((1 + filter->b)/2);
 	filter->higha1 = -filter->higha0;
 	filter->delay = round((samplerate * 250) / 1000000);
 	return 0;
@@ -48,12 +49,13 @@ static inline void crossfeed_process_sample(crossfeed_t *filter, float left, flo
                                             float *oleft, float *oright) {
 	float mid = (left + right) / 2;
 	float side = (left - right) / 2;
+	float feedback = filter->feedback;
 	filter->feedback = (filter->side[filter->pos] * filter->a) + (filter->feedback * filter->b);
-	filter->highfeedback = (side * filter->higha0 + filter->side[(filter->pos + filter->delay + 1) % filter->delay] * filter->higha1) + (filter->highfeedback * filter->b);
+	filter->highfeedback = ((side + filter->feedback) * filter->higha0 + (filter->side[(filter->pos + filter->delay + 1) % filter->delay] + feedback) * filter->higha1) + (filter->highfeedback * filter->b);
 	filter->side[filter->pos] = side;
 	if(!filter->bypass) {
-		*oleft = mid + side + filter->highfeedback + filter->feedback;
-		*oright = mid - (side + filter->highfeedback + filter->feedback);
+		*oleft = mid + side + filter->highfeedback;
+		*oright = mid - (side + filter->highfeedback);
 	} else {
 		*oleft = mid + side;
 		*oright = mid - side;
