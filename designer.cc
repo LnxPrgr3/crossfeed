@@ -85,7 +85,7 @@ static float compute_error(const vector<float> &xs) {
 		float xfeed_resp = 0.5*result_interleaved[2*i];
 		float mono_err = mono_resp - 1;
 		float xfeed_err = (xfeed_resp - transfer_function(freq)) / transfer_function(freq);
-		error += (mono_err*mono_err)*M_SQRT2 + (xfeed_err*xfeed_err) * M_SQRT1_2;
+		error += (mono_err*mono_err) + (xfeed_err*xfeed_err);
 	}
 	return error / 1024.;
 }
