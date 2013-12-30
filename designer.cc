@@ -39,7 +39,7 @@ using namespace std;
 static FFTSetup fft_context;
 
 static float transfer_function(float x) {
-	return pow(10, (x <= 1500 ? 2 : 2 * log2(x/750)) / -20);
+	return pow(10, (x <= 1500 ? 1 : 2 * log2(x/(750+((466./2)*3)))) / -20);
 }
 
 static void compute_response(float *result_interleaved, const vector<float> &xs) {
