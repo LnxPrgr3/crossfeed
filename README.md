@@ -19,9 +19,9 @@ I decided to try something weird--to design a filter that could change the
 stereo image without impacting overall frequency response. This filter does
 that two ways:
 
-* Monaural signals pass through unchanged (technically, they're delayed by
-  250µs). The filter converts to mid/side stereo, works on the side channel,
-  then converts back to the regular left/right format.
+* Monaural signals pass through unchanged. The filter converts to mid/side
+  stereo, works on the side channel, then converts back to the regular
+  left/right format.
 * For e.g. a sound in the left channel, the filter modifies the left channel
   signal in a way that complements the sound introduced on the right. If you
   were to run this filter, then mix the output down to a single channel, these
