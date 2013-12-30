@@ -33,7 +33,7 @@
 
 int crossfeed_init(crossfeed_t *filter, float samplerate) {
 	memset(filter, 0, sizeof(crossfeed_t));
-	if(samplerate < 32000 || samplerate > 192000)
+	if(samplerate < 44100 || samplerate > 192000)
 		return -1;
 	filter->b = 0.331784 / (samplerate / 44100);
 	//filter->b = 0.5 / (samplerate / 96000);
