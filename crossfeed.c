@@ -51,7 +51,7 @@ static inline void crossfeed_process_sample(crossfeed_t *filter, float left, flo
 	float side = (left - right) / 2;
 	float feedback = filter->feedback;
 	filter->feedback = (filter->side[filter->pos] * filter->a) + (filter->feedback * filter->b);
-	filter->highfeedback = ((side + filter->feedback) * filter->higha0 + (filter->side[(filter->pos + filter->delay + 1) % filter->delay] + feedback) * filter->higha1) + (filter->highfeedback * filter->b);
+	filter->highfeedback = ((side - filter->feedback) * filter->higha0 + (filter->side[(filter->pos + filter->delay + 1) % filter->delay] - feedback) * filter->higha1) + (filter->highfeedback * filter->b);
 	filter->side[filter->pos] = side;
 	if(!filter->bypass) {
 		*oleft = mid + side + filter->highfeedback;
