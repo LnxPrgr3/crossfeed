@@ -45,21 +45,21 @@ struct magic {
 };
 
 static float transfer_function(float x) {
-	return sqrtf(pow(10, (x <= 1000 ? 2 : 2 * log2(x/1000)) / -20));
-}
-
-static void compute_crossfeed_response(float *result, float *filter, const struct magic *magic) {
-	vDSP_vclr(result, 1, 512);
-	for(unsigned int i=0;i<magic->len;++i) {
-		result[i+magic->offset] = -filter[i] / 2;
-	}
-	result[magic->offset+magic->delay] += 0.5;
+	return pow(10, (x <= 1500 ? 2 : 2 * log2(x/750)) / -20);
 }
 
 static void compute_mono_response(float *result, float *filter, const struct magic *magic) {
-	for(unsigned int i=0;i<magic->len;++i) {
-		result[magic->offset+magic->delay+i] += filter[i] / 2;
+	vDSP_vclr(result, 1, 512);
+	for(unsigned i=0;i<magic->len;++i) {
+		result[i+magic->offset] = filter[i] / 2;
 	}
+}
+
+static void compute_crossfeed_response(float *result, float *filter, const struct magic *magic) {
+	for(unsigned i=0;i<magic->len;++i) {
+		result[i+magic->offset] = -filter[i] / 2;
+	}
+	result[magic->offset] += 0.5;
 }
 
 static double compute_error(float *filter, float *transfer_fn, const struct magic *magic) {
@@ -68,15 +68,6 @@ static double compute_error(float *filter, float *transfer_fn, const struct magi
 	float response_interleaved[512];
 	DSPSplitComplex response = {response_memory, response_memory + 256};
 	float crossfeed_error = 0, mono_error = 0;
-	compute_crossfeed_response(result, filter, magic);
-	vDSP_ctoz((DSPComplex *)result, 2, &response, 1, 256);
-	vDSP_fft_zrip(fft_context, &response, 1, 9, FFT_FORWARD);
-	vDSP_ztoc(&response, 1, (DSPComplex *)response_interleaved, 2, 256);
-	vDSP_polar(response_interleaved, 2, response_interleaved, 2, 256);
-	for(unsigned int i=0;i<magic->limit;++i) {
-		float err = transfer_fn[i] - 0.5 * response_interleaved[2*i];
-		crossfeed_error += err*err;
-	}
 	compute_mono_response(result, filter, magic);
 	vDSP_ctoz((DSPComplex *)result, 2, &response, 1, 256);
 	vDSP_fft_zrip(fft_context, &response, 1, 9, FFT_FORWARD);
@@ -86,7 +77,19 @@ static double compute_error(float *filter, float *transfer_fn, const struct magi
 		float err = 1 - 0.5 * response_interleaved[2*i];
 		mono_error += err*err;
 	}
-	return (mono_error / 256) * M_SQRT2 + (crossfeed_error / magic->limit) * M_SQRT1_2;
+	compute_crossfeed_response(result, filter, magic);
+	vDSP_ctoz((DSPComplex *)result, 2, &response, 1, 256);
+	vDSP_fft_zrip(fft_context, &response, 1, 9, FFT_FORWARD);
+	vDSP_ztoc(&response, 1, (DSPComplex *)response_interleaved, 2, 256);
+	for(unsigned int i=0;i<magic->limit;++i) {
+		float freq = (i * magic->samplerate) / 512.;
+		float delay = (magic->delay * 1000000.) / magic->samplerate - (0.5*transfer_fn[i] - pow(10, -2./20)) * 500;
+		float phase = 2*M_PI*((magic->delay / 1000000.) / (1. / freq));		
+		float err_s = transfer_fn[i]*sin(phase) - 0.5 * response_interleaved[2*i];
+		float err_c = transfer_fn[i]*sin(phase) - 0.5 * response_interleaved[2*i+1];
+		crossfeed_error += (err_s*err_s + err_c*err_c) / 2;
+	}
+	return (mono_error / 256) + (crossfeed_error / magic->limit);
 }
 
 static double window_fn(int i, int N) {
@@ -108,11 +111,11 @@ int main(int argc, char *argv[]) {
 	magic.delay = (magic.samplerate * 250) / 1000000;
 	magic.len = 3 * magic.delay + 2;
 	magic.offset = 256 - magic.len / 2;
-	magic.limit = (22000 * 512) / magic.samplerate;
+	magic.limit = 256;
 	if(magic.limit > 256)
 		magic.limit = 256;
 	for(unsigned int i=0;i<256;++i) {
-		transfer_fn[i] = transfer_function((i * 512) / (float)magic.samplerate);
+		transfer_fn[i] = transfer_function((i * magic.samplerate) / 512.);
 	}
 	filter[magic.delay] = 1;
 	filter[2*magic.delay+1] = -1;
