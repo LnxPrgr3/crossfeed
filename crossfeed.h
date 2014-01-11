@@ -35,8 +35,8 @@ extern "C" {
 #endif
 
 typedef struct crossfeed_s {
-	float mid[63];
-	float side[63];
+	float mid[25];
+	float side[25];
 	const float *filter;
 	unsigned char delay;
 	unsigned char len;
