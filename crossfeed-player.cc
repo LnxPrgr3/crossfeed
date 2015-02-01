@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <termios.h>
+#include <signal.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <AudioToolbox/AudioToolbox.h>
 #include <vector>
@@ -47,6 +48,7 @@ static struct message_queue mq;
 static crossfeed_t crossfeed;
 static float scale_db = 0;
 static float scale = 1;
+static pthread_t main_thread;
 
 static std::vector<const char *> playlist;
 
@@ -118,6 +120,7 @@ static void *audio_threadproc(void *data) {
 destroy_player:
 	CADestroyPlayer(&player);
 done:
+	pthread_kill(main_thread, SIGINT);
 	return data;
 }
 
@@ -149,6 +152,7 @@ int main(int argc, char *argv[]) {
 			return rand() % n;
 		});
 	}
+	main_thread = pthread_self();
 	pthread_t audio_thread;
 	if(pthread_create(&audio_thread, NULL, &audio_threadproc, NULL)) {
 		fprintf(stderr, "Error starting audio control thread\n");
