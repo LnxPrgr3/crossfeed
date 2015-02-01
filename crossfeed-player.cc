@@ -88,7 +88,14 @@ static void *audio_threadproc(void *data) {
 		fprintf(stderr, "Playing `%s'...\r\n", *i);
 		if(CAPlayFile(&player, *i)) {
 			fprintf(stderr, "Error playing `%s'\r\n", *i);
-			++i;
+			if(i == playlist.begin()) {
+				playlist.erase(i);
+				i = playlist.begin();
+			} else {
+				auto next = i - 1;
+				playlist.erase(i);
+				i = next + 1;
+			}
 			continue;
 		}
 		struct control_msg *msg = (struct control_msg *)message_queue_read(&mq);
