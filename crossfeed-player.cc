@@ -39,26 +39,76 @@
 #include "message_queue.h"
 #include "crossfeed.h"
 
-struct control_msg {
-	int id;
-	enum {MSG_FILEDONE, MSG_BACK, MSG_FORWARD, MSG_EXIT} type;
+class playlist {
+public:
+	void shuffle() { _shuffle = true; }
+	void add(const char *file) { _files.push_back(file); }
+	const char *next() {
+		if(_shuffle) {
+			srand(time(NULL));
+			random_shuffle(_files.begin(), _files.end(), [](unsigned int n) {
+				return rand() % n;
+			});
+			_shuffle = false;
+		}
+		++pos;
+		return pos >= _files.size() ? NULL : _files[pos];
+	}
+	const char *prev() {
+		pos = pos > 0 ? pos - 1 : pos;
+		return pos >= _files.size() ? NULL : _files[pos];
+	}
+	void erase_current() {
+		_files.erase(_files.begin()+pos);
+		prev();
+	}
+private:
+	std::vector<const char *> _files;
+	bool _shuffle = false;
+	ssize_t pos = -1;
 };
 
-static struct message_queue mq;
-static crossfeed_t crossfeed;
 static float scale_db = 0;
 static float scale = 1;
-static pthread_t main_thread;
 
-static std::vector<const char *> playlist;
+static crossfeed_t crossfeed;
+
+static message_queue cmq, acmq;
+
+static struct termios t_orig_params, t_params;
 
 static void set_volume(float volume) {
 	scale_db = volume;
 	scale = pow(10, scale_db/20);
 }
 
+static void tell(message_queue *queue, char c) {
+	char *msg = (char *)message_queue_message_alloc_blocking(queue);
+	*msg = c;
+	message_queue_write(queue, msg);
+}
+
+static void console_init() {
+	tcgetattr(0, &t_params);
+	t_orig_params = t_params;
+	cfmakeraw(&t_params);
+	tcsetattr(0, TCSANOW, &t_params);
+}
+
+static void console_reset() {
+	tcsetattr(0, TCSANOW, &t_orig_params);
+}
+
+static void *conio_threadproc(void *data) {
+	while(true) {
+		int r = getchar();
+		char c = r == EOF ? 'q' : r;
+		tell(&cmq, c);
+	}
+	return data;
+}
+
 static void event_handler(struct PlayerEvent *evt) {
-	struct control_msg *msg;
 	switch(evt->type) {
 	case PlayerEvent::PLAYER_RENDER:
 		crossfeed_filter_inplace_noninterleaved(&crossfeed, evt->left, evt->right, evt->size);
@@ -68,139 +118,130 @@ static void event_handler(struct PlayerEvent *evt) {
 		}
 		break;
 	case PlayerEvent::PLAYER_DONE:
-		msg = (struct control_msg *)message_queue_message_alloc_blocking(&mq);
-		msg->type = control_msg::MSG_FILEDONE;
-		message_queue_write(&mq, msg);
+		tell(&acmq, '>');
 		break;
 	}
 }
 
+static void play_next(Player *player, playlist *pl) {
+	while(true) {
+		const char *file = pl->next();
+		if(file) {
+			fprintf(stderr, "Playing `%s'...\r\n", file);
+			if(CAPlayFile(player, file)) {
+				fprintf(stderr, "Error playing `%s'\r\n", file);
+				pl->erase_current();
+			} else
+				break;
+		} else {
+			tell(&cmq, 'q');
+			break;
+		}
+	}
+}
+
+static void play_prev(Player *player, playlist *pl) {
+	const char *file = pl->prev();
+	fprintf(stderr, "Playing `%s'...\r\n", file);
+	CAPlayFile(player, file);
+}
+
+
 static void *audio_threadproc(void *data) {
 	struct Player player;
-	std::vector<const char *>::const_iterator i = playlist.begin();
+	playlist *pl = (playlist *)data;
+	const char *file;
+	bool running = true;
 	if(CAInitPlayer(&player, &event_handler)) {
 		fprintf(stderr, "Error initializing audio output\n");
-		goto done;
+		goto e_done;
 	}
 	if(crossfeed_init(&crossfeed, player.samplerate)) {
 		fprintf(stderr, "Filter not available for %dHz\n", player.samplerate);
-		goto destroy_player;
+		goto e_destroy_player;
 	}
-	while(i != playlist.end()) {
-		fprintf(stderr, "Playing `%s'...\r\n", *i);
-		if(CAPlayFile(&player, *i)) {
-			fprintf(stderr, "Error playing `%s'\r\n", *i);
-			if(i == playlist.begin()) {
-				playlist.erase(i);
-				i = playlist.begin();
-			} else {
-				auto next = i - 1;
-				playlist.erase(i);
-				i = next + 1;
-			}
-			continue;
-		}
-		struct control_msg *msg = (struct control_msg *)message_queue_read(&mq);
-		switch(msg->type) {
-		case control_msg::MSG_BACK:
-			if(i != playlist.begin())
-				--i;
+	play_next(&player, pl);
+	while(running) {
+		char *msg = (char *)message_queue_read(&acmq);
+		char c = *msg;
+		message_queue_message_free(&acmq, msg);
+		switch(c) {
+		case '<':
+			CAStopPlayback(&player);
+			play_prev(&player, pl);
 			break;
-		case control_msg::MSG_FORWARD:
-		case control_msg::MSG_FILEDONE:
-			++i;
+		case '>':
+			CAStopPlayback(&player);
+			play_next(&player, pl);
 			break;
-		case control_msg::MSG_EXIT:
-			i = playlist.end();
+		case 'q':
+			running = false;
 			break;
 		}
-		message_queue_message_free(&mq, msg);
-		CAStopPlayback(&player);
 	}
-destroy_player:
 	CADestroyPlayer(&player);
-done:
-	pthread_kill(main_thread, SIGINT);
+	return data;
+e_destroy_player:
+	CADestroyPlayer(&player);
+e_done:
+	tell(&cmq, 'q');
 	return data;
 }
 
 int main(int argc, char *argv[]) {
-	int res = EXIT_FAILURE;
+	playlist playlist;
+	pthread_t conio, audio;
 	bool running = true;
-	bool shuffle = false;
-	message_queue_init(&mq, sizeof(struct control_msg), 2);
 	if(argc < 2) {
 		fprintf(stderr, "Usage: %s [-s] [-g dBFS] /foo/bar\n", argc == 1 ? argv[0] : "crossfeed-player");
-		goto done;
+		return EXIT_FAILURE;
 	}
-	for(int i=1;i<argc;++i) {
-		if(strcmp(argv[i], "-g") == 0) {
-			if(++i > argc)
+	for(int i = 1; i < argc; ++i) {
+		if(strcmp("-g", argv[i]) == 0) {
+			if(++i >= argc)
 				break;
 			set_volume(atof(argv[i]));
-			continue;
+		} else if(strcmp("-s", argv[i]) == 0) {
+			playlist.shuffle();
+		} else {
+			playlist.add(argv[i]);
 		}
-		if(strcmp(argv[i], "-s") == 0) {
-			shuffle = true;
-			continue;
-		}
-		playlist.push_back(argv[i]);
 	}
-	if(shuffle) {
-		srand(time(NULL));
-		random_shuffle(playlist.begin(), playlist.end(), [](unsigned int n) {
-			return rand() % n;
-		});
-	}
-	main_thread = pthread_self();
-	pthread_t audio_thread;
-	if(pthread_create(&audio_thread, NULL, &audio_threadproc, NULL)) {
-		fprintf(stderr, "Error starting audio control thread\n");
-		goto done;
-	}
-	struct termios t_orig_params, t_params;
-	tcgetattr(0, &t_params);
-	t_orig_params = t_params;
-	cfmakeraw(&t_params);
-	tcsetattr(0, TCSANOW, &t_params);
+	message_queue_init(&cmq, 1, 16);
+	message_queue_init(&acmq, 1, 16);
+	console_init();
+	pthread_create(&conio, NULL, &conio_threadproc, NULL);
+	pthread_create(&audio, NULL, &audio_threadproc, &playlist);
 	while(running) {
-		struct control_msg *msg;
-		switch(getchar()) {
-		case EOF:
+		char *msg = (char *)message_queue_read(&cmq);
+		char c = *msg;
+		message_queue_message_free(&cmq, msg);
+		switch(c) {
+		case '*':
+			set_volume(scale_db+0.5);
+			fprintf(stderr, "Volume: %.1f  \r", scale_db);
+			break;
+		case '/':
+			set_volume(scale_db-0.5);
+			fprintf(stderr, "Volume: %.1f  \r", scale_db);
+			break;
 		case 'q':
-			msg = (struct control_msg *)message_queue_message_alloc_blocking(&mq);
-			msg->type = control_msg::MSG_EXIT;
-			message_queue_write(&mq, msg);
 			running = false;
-			break;
 		case '<':
-			msg = (struct control_msg *)message_queue_message_alloc_blocking(&mq);
-			msg->type = control_msg::MSG_BACK;
-			message_queue_write(&mq, msg);
-			break;
 		case '>':
-			msg = (struct control_msg *)message_queue_message_alloc_blocking(&mq);
-			msg->type = control_msg::MSG_FORWARD;
-			message_queue_write(&mq, msg);
+			tell(&acmq, c);
 			break;
 		case 'c':
 			crossfeed.bypass = crossfeed.bypass ? 0 : 1;
 			fprintf(stderr, "XFeed: %s    \r", crossfeed.bypass ? "Off" : "On");
 			break;
-		case '/':
-			set_volume(scale_db - 0.5);
-			fprintf(stderr, "Volume: %.1f  \r", scale_db);
-			break;
-		case '*':
-			set_volume(scale_db + 0.5);
-			fprintf(stderr, "Volume: %.1f  \r", scale_db);
-			break;
 		}
 	}
-	pthread_join(audio_thread, NULL);
-	tcsetattr(0, TCSANOW, &t_orig_params);
-	res = EXIT_SUCCESS;
-done:
-	message_queue_destroy(&mq);
-	return res;
+	pthread_cancel(conio);
+	pthread_detach(conio);
+	console_reset();
+	pthread_join(audio, NULL);
+	message_queue_destroy(&acmq);
+	message_queue_destroy(&cmq);
+	return EXIT_SUCCESS;
 }
