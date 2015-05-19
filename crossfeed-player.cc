@@ -32,9 +32,13 @@
 #include <pthread.h>
 #include <termios.h>
 #include <signal.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <limits.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <AudioToolbox/AudioToolbox.h>
 #include <vector>
+#include <string>
 #include "cautil.h"
 #include "message_queue.h"
 #include "crossfeed.h"
@@ -42,7 +46,30 @@
 class playlist {
 public:
 	void shuffle() { _shuffle = true; }
-	void add(const char *file) { _files.push_back(file); }
+	void add(const char *file) {
+		struct stat st;
+		if(!stat(file, &st)) {
+			if(st.st_mode & S_IFREG)
+				_files.push_back(file);
+			else if(st.st_mode & S_IFDIR) {
+				char buf[PATH_MAX];
+				DIR *dir = opendir(file);
+				if(dir) {
+					struct dirent ent, *result;
+					while(!readdir_r(dir, &ent, &result) && result) {
+						if(strcmp(".", ent.d_name) == 0 ||
+						   strcmp("..", ent.d_name) == 0 ||
+						   strcmp(".DS_Store", ent.d_name) == 0 ||
+						   strncmp("._", ent.d_name, 2) == 0)
+							continue;
+						snprintf(buf, PATH_MAX, "%s/%s", file, ent.d_name);
+						add(buf);
+					}
+					closedir(dir);
+				}
+			}
+		}
+	}
 	const char *next() {
 		if(_shuffle) {
 			srand(time(NULL));
@@ -52,18 +79,18 @@ public:
 			_shuffle = false;
 		}
 		++pos;
-		return pos >= _files.size() ? NULL : _files[pos];
+		return pos >= _files.size() ? NULL : _files[pos].c_str();
 	}
 	const char *prev() {
 		pos = pos > 0 ? pos - 1 : pos;
-		return pos >= _files.size() ? NULL : _files[pos];
+		return pos >= _files.size() ? NULL : _files[pos].c_str();
 	}
 	void erase_current() {
 		_files.erase(_files.begin()+pos);
 		prev();
 	}
 private:
-	std::vector<const char *> _files;
+	std::vector<std::string> _files;
 	bool _shuffle = false;
 	ssize_t pos = -1;
 };
