@@ -93,12 +93,6 @@ int main(int argc, char *argv[]) {
 	// 5000: 6
 	// 10000: 11
 	transfer_function_sample(transfer_fn, [](fp x) {
-		//return pow(10, (x <= 250 ? 1 : 1 + 1.5*log2(x/250) + (x > 5000 ? 5*log2(x/5000) : 0)) / -20);
-		//fp db = ((x-1000.)*(x-5000.)*(x-10000.)*1)/((250.-1000.)*(250.-5000.)*(250.-10000.)) + ((x-250.)*(x-5000.)*(x-10000.)*4)/((1000.-250.)*(1000.-5000.)*(1000.-10000.)) + ((x-250.)*(x-1000.)*(x-10000.)*6)/((5000.-250.)*(5000.-1000.)*(5000.-10000.)) + ((x-250.)*(x-1000.)*(x-5000.)*11)/((10000.-250.)*(10000.-1000.)*(10000.-5000.));
-		//return pow(10, db / -20);
-		//fp val = exp(-(x+260)/200)-.00004388*x+0.7;
-		//return val > 1 ? 1 : val < 0.1 ? 0.1 : val;
-		//fp val = -4/(1+exp(-x/250))-x*0.0006;
 		fp val = -10/(1+exp(-x/250))+6-x*0.0006;
 		return pow(10, val / 20);
 	}, 256, SR);
@@ -112,38 +106,6 @@ int main(int argc, char *argv[]) {
 	});
 	cout << endl;
 	fp fixer[512] = {1, 0};
-#if 0
-	fp target[(512*2*(FDELAY+1))/OVERSAMPLE];
-	gabor_context<fp> dgt(512, FDELAY+1, OVERSAMPLE);
-	compute_ideal_gabor_response(target, filter, FDELAY, dgt);
-	last_N = 0;
-	last_error = 1;
-	auto res2 = filter_create(fixer, FDELAY, [&](const fp *fixer) {
-		fp combined[512] = {0};
-		fp resp[(512*2*(FDELAY+1))/OVERSAMPLE];
-		fp error = 0;
-		for(int i=0;i<2*FDELAY+1;++i) {
-			combined[i] = fixer[i];
-		}
-		for(int i=0;i<FDELAY;++i) {
-			combined[i+1] += filter[FDELAY-i-1];
-		}
-		dgt.dgt(resp, combined, 2*(FDELAY+1));
-		for(int i=0;i<(512*2*(FDELAY+1))/OVERSAMPLE;++i) {
-			fp err = resp[i] - target[i];
-			error += err*err;
-		}
-		return error / (512*2*(FDELAY+1));
-	}, [&](fp error, int N) {
-		if(N > last_N || error / last_error < 0.99) {
-			cout << "N " << N << ", error: " << error << "           \r" << flush;
-			last_N = N;
-			last_error = error;
-		}
-		return false;
-		//return error < 0.01*0.01;
-	});
-#endif
 	cout << endl;
 	cout << setprecision(numeric_limits<float>::digits10+2);
 	filter[FDELAY] = 0;
@@ -151,9 +113,5 @@ int main(int argc, char *argv[]) {
 		int idx = i+FDELAY-TDELAY;
 		cout << fixer[i] - (idx > 0 ? filter[FDELAY-idx-1] : 0) << ' ';
 	}
-	/*
-	for(int i=0;i<2*FDELAY+1;++i) {
-		cout << fixer[i] - (i > FDELAY ? filter[i-FDELAY-1] : 0) << ' ';
-	}*/
 	cout << endl;
 }
