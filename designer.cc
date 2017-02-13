@@ -30,11 +30,12 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
+#include <unistd.h>
 using namespace std;
 using namespace fdesign;
 
-#define SR 96000
-#define FDELAY 40
+int SR = -1;
+int FDELAY;
 #define OVERSAMPLE 5
 
 typedef float fp;
@@ -56,11 +57,34 @@ static void compute_ideal_gabor_response(fp *response, const fp *crossfeed, int 
 	}
 }
 
+static void usage(int argc, char *argv[]) {
+	fprintf(stderr, "Usage: %s -s <samplerate>\n", argc ? argv[0] : "designer");
+	exit(-1);
+}
+
+static void parseopts(int argc, char *argv[]) {
+	int ch;
+	while((ch = getopt(argc, argv, "s:")) != -1) {
+		switch(ch) {
+		case 's':
+			SR = atoi(optarg);
+			FDELAY = round((40.*SR)/96000.);
+			break;
+		case '?':
+		default:
+			usage(argc, argv);
+		}
+	}
+	if(SR < 0)
+		usage(argc, argv);
+}
+
 int main(int argc, char *argv[]) {
 	ios_base::sync_with_stdio(false);
 	fp transfer_fn[257];
 	fp filter[512];
 	fp last_error = 1;
+	parseopts(argc, argv);
 	int last_N = 0;
 	// 250: 1
 	// 1000: 4
