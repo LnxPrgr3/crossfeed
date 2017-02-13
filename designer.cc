@@ -36,6 +36,7 @@ using namespace fdesign;
 
 int SR = -1;
 int FDELAY;
+int TDELAY;
 #define OVERSAMPLE 5
 
 typedef float fp;
@@ -69,6 +70,7 @@ static void parseopts(int argc, char *argv[]) {
 		case 's':
 			SR = atoi(optarg);
 			FDELAY = round((40.*SR)/96000.);
+			TDELAY = round((22.*SR)/96000.);
 			break;
 		case '?':
 		default:
@@ -145,8 +147,9 @@ int main(int argc, char *argv[]) {
 	cout << endl;
 	cout << setprecision(numeric_limits<float>::digits10+2);
 	filter[FDELAY] = 0;
-	for(int i=0;i<FDELAY+1;++i) {
-		cout << fixer[i] - (i > 0 ? filter[FDELAY-i-1] : 0) << ' ';
+	for(int i=0;i<TDELAY;++i) {
+		int idx = i+FDELAY-TDELAY;
+		cout << fixer[i] - (idx > 0 ? filter[FDELAY-idx-1] : 0) << ' ';
 	}
 	/*
 	for(int i=0;i<2*FDELAY+1;++i) {
