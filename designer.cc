@@ -48,10 +48,11 @@ static void compute_ideal_gabor_response(fp *response, const fp *crossfeed, int 
 	array_clear(signal, dgt.N);
 	signal[0] = 1;
 	dgt.dgt(samechan, signal, (crossfeed_delay*2+2));
-	for(int i=0;i<FDELAY;++i) {
-		signal[i+1] = crossfeed[FDELAY-i-1];
+	for(int i=0;i<crossfeed_delay;++i) {
+		signal[i+FDELAY] = crossfeed[i];
 	}
-	signal[0] = 0;
+	for(int i = 0; i < FDELAY; ++i)
+		signal[i] = 0;
 	dgt.dgt(crosschan, signal, (crossfeed_delay*2+2));
 	for(int i=0;i<dgt.N*((crossfeed_delay*2+2))/dgt.window_spacing;++i) {
 		response[i] = samechan[i] + crosschan[i];
@@ -102,16 +103,16 @@ int main(int argc, char *argv[]) {
 			last_N = N;
 			last_error = error;
 		}
-		return error < 0.001*0.001 || N > FDELAY;
+		return error < 0.001*0.001;
 	});
 	cout << endl;
 	fp fixer[512] = {1, 0};
 	cout << endl;
 	cout << setprecision(numeric_limits<float>::digits10+2);
 	filter[FDELAY] = 0;
-	for(int i=0;i<TDELAY;++i) {
-		int idx = i+FDELAY-TDELAY;
-		cout << fixer[i] - (idx > 0 ? filter[FDELAY-idx-1] : 0) << ' ';
+	for(int i=0;i<res.second+FDELAY;++i) {
+		fp impulse = i == 0 ? 1 : 0;
+		cout << (impulse - (i - FDELAY < 0 ? 0 : filter[i-FDELAY])) << ' ';
 	}
 	cout << endl;
 }
