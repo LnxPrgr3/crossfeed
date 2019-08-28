@@ -48,10 +48,11 @@ static void compute_ideal_gabor_response(fp *response, const fp *crossfeed, int 
 	array_clear(signal, dgt.N);
 	signal[0] = 1;
 	dgt.dgt(samechan, signal, (crossfeed_delay*2+2));
-	for(int i=0;i<FDELAY;++i) {
-		signal[i+1] = crossfeed[FDELAY-i-1];
+	for(int i=0;i<crossfeed_delay;++i) {
+		signal[i+FDELAY] = crossfeed[i];
 	}
-	signal[0] = 0;
+	for(int i = 0; i < FDELAY; ++i)
+		signal[i] = 0;
 	dgt.dgt(crosschan, signal, (crossfeed_delay*2+2));
 	for(int i=0;i<dgt.N*((crossfeed_delay*2+2))/dgt.window_spacing;++i) {
 		response[i] = samechan[i] + crosschan[i];
@@ -81,6 +82,10 @@ static void parseopts(int argc, char *argv[]) {
 		usage(argc, argv);
 }
 
+static fp square(fp x) {
+	return x*x;
+}
+
 int main(int argc, char *argv[]) {
 	ios_base::sync_with_stdio(false);
 	fp transfer_fn[257];
@@ -93,7 +98,7 @@ int main(int argc, char *argv[]) {
 	// 5000: 6
 	// 10000: 11
 	transfer_function_sample(transfer_fn, [](fp x) {
-		fp val = -10/(1+exp(-x/250))+6-x*0.0006;
+		fp val = 4*(exp(-x/3000+1)-3)+3*exp(-square(x-4600)/14000000);
 		return pow(10, val / 20);
 	}, 256, SR);
 	auto res = filter_create(filter, transfer_fn, 512, [&](fp error, int N) {
@@ -102,16 +107,16 @@ int main(int argc, char *argv[]) {
 			last_N = N;
 			last_error = error;
 		}
-		return error < 0.001*0.001 || N > FDELAY;
+		return error < 0.001*0.001;
 	});
 	cout << endl;
 	fp fixer[512] = {1, 0};
 	cout << endl;
 	cout << setprecision(numeric_limits<float>::digits10+2);
 	filter[FDELAY] = 0;
-	for(int i=0;i<TDELAY;++i) {
-		int idx = i+FDELAY-TDELAY;
-		cout << fixer[i] - (idx > 0 ? filter[FDELAY-idx-1] : 0) << ' ';
+	for(int i=0;i<res.second+FDELAY;++i) {
+		fp impulse = i == 0 ? 1 : 0;
+		cout << (impulse - (i - FDELAY < 0 ? 0 : filter[i-FDELAY])) << ' ';
 	}
 	cout << endl;
 }
