@@ -82,6 +82,10 @@ static void parseopts(int argc, char *argv[]) {
 		usage(argc, argv);
 }
 
+static fp square(fp x) {
+	return x*x;
+}
+
 int main(int argc, char *argv[]) {
 	ios_base::sync_with_stdio(false);
 	fp transfer_fn[257];
@@ -94,7 +98,7 @@ int main(int argc, char *argv[]) {
 	// 5000: 6
 	// 10000: 11
 	transfer_function_sample(transfer_fn, [](fp x) {
-		fp val = -10/(1+exp(-x/250))+6-x*0.0006;
+		fp val = 4*(exp(-x/3000+1)-3)+3*exp(-square(x-4600)/14000000);
 		return pow(10, val / 20);
 	}, 256, SR);
 	auto res = filter_create(filter, transfer_fn, 512, [&](fp error, int N) {
