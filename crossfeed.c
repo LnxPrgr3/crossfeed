@@ -68,9 +68,9 @@ int crossfeed_init(crossfeed_t *filter, int samplerate) {
 	double c_0 = (1 + sqrt(2*H_1*H_1-1)) / 2;
 	double c_1 = 1 - c_0;
 
-	double ap_0 = (Kz_0 + Kz_1 + Kz_2);
-	double ap_1 = (-Kz_0*pz_1 - Kz_0*pz_2 - Kz_1*pz_0 - Kz_1*pz_2 - Kz_2*pz_0 - Kz_2*pz_1);
-	double ap_2 = (Kz_0*pz_1*pz_2 + Kz_1*pz_0*pz_2 + Kz_2*pz_0*pz_1);
+	double ap_0 = (Kz_0 + Kz_1 + Kz_2)/2;
+	double ap_1 = (-Kz_0*pz_1 - Kz_0*pz_2 - Kz_1*pz_0 - Kz_1*pz_2 - Kz_2*pz_0 - Kz_2*pz_1)/2;
+	double ap_2 = (Kz_0*pz_1*pz_2 + Kz_1*pz_0*pz_2 + Kz_2*pz_0*pz_1)/2;
 
 	filter->a_0 = ap_0*c_0;
 	filter->a_1 = ap_0*c_1 + ap_1*c_0;
@@ -105,14 +105,13 @@ static inline void crossfeed_process_sample(crossfeed_t *filter, float left, flo
 	filter->opos = (filter->opos + 1) % 3;
 	filter->o[filter->opos] = oside;
 
-	if (filter->bypass) {
-		oside = 0;
+	if (!filter->bypass) {
+		side -= oside;
+		mid += oside;
 	}
 
-	oside = filter->side[filter->pos] - oside;
-
-	*oleft = filter->mid[filter->pos] + oside;
-	*oright = filter->mid[filter->pos] - oside;
+	*oleft = mid + side;
+	*oright = mid - side;
 	filter->pos = (filter->pos + 1) % len;
 }
 
